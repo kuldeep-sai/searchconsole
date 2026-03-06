@@ -69,7 +69,7 @@ keyword_filter = st.sidebar.selectbox(
     ["All","Brand","Non Brand"]
 )
 
-brand_keywords = ["naukri","naukri.com","naukri jobs","naukri login"]
+brand_keywords = ["naukri","naukri.com","naukri jobs","naukri login","nakuri","nokri","nokari","naukari"]
 
 # -----------------------------
 # FETCH DATA FUNCTION
