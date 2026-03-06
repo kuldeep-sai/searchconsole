@@ -295,45 +295,62 @@ st.line_chart(trend)
 # TRAFFIC LOSS VS PREVIOUS MONTH
 # -----------------------------
 
-st.header("🚨 Traffic Loss vs Previous Month")
+st.header("📉 Traffic Loss vs Previous Month")
 
-if not prev_df.empty:
+if not current_df.empty:
 
-    current_kw = current_df.groupby(["keyword","page"]).agg({
+    # Ensure required columns exist
+    required_cols = ["query", "page", "clicks", "impressions", "ctr", "position"]
+
+    for col in required_cols:
+        if col not in current_df.columns:
+            current_df[col] = 0
+
+    if prev_df.empty:
+        prev_df = pd.DataFrame(columns=required_cols)
+
+    for col in required_cols:
+        if col not in prev_df.columns:
+            prev_df[col] = 0
+
+    # Group current month
+    current_grouped = current_df.groupby(["query","page"], as_index=False).agg({
         "clicks":"sum",
         "impressions":"sum",
         "ctr":"mean",
         "position":"mean"
-    }).reset_index()
+    })
 
-    prev_kw = prev_df.groupby(["keyword","page"]).agg({
+    # Group previous month
+    prev_grouped = prev_df.groupby(["query","page"], as_index=False).agg({
         "clicks":"sum",
         "impressions":"sum",
         "ctr":"mean",
         "position":"mean"
-    }).reset_index()
+    })
 
-    loss_df = current_kw.merge(
-        prev_kw,
-        on=["keyword","page"],
-        how="left",
+    # Merge safely
+    loss_df = pd.merge(
+        current_grouped,
+        prev_grouped,
+        on=["query","page"],
+        how="outer",
         suffixes=("_current","_prev")
-    )
+    ).fillna(0)
 
-    loss_df.fillna(0,inplace=True)
-
+    # Calculate loss metrics
     loss_df["click_loss"] = loss_df["clicks_prev"] - loss_df["clicks_current"]
-    loss_df["impression_change"] = loss_df["impressions_current"] - loss_df["impressions_prev"]
+    loss_df["impression_loss"] = loss_df["impressions_prev"] - loss_df["impressions_current"]
     loss_df["ctr_change"] = loss_df["ctr_current"] - loss_df["ctr_prev"]
-    loss_df["position_change"] = loss_df["position_current"] - loss_df["position_prev"]
+    loss_df["rank_change"] = loss_df["position_current"] - loss_df["position_prev"]
 
-    loss_df = loss_df.sort_values("click_loss",ascending=False)
+    # Sort biggest traffic loss
+    loss_df = loss_df.sort_values("click_loss", ascending=False)
 
     st.dataframe(loss_df.head(100))
 
 else:
-
-    st.warning("Previous month data not available")
+    st.warning("No data available for selected period.")
 
 # -----------------------------
 # NEW KEYWORDS
