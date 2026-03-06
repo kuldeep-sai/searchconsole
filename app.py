@@ -289,24 +289,45 @@ st.line_chart(trend)
 
 st.header("🚨 Traffic Loss vs Previous Month")
 
-loss_df = current_df.merge(
-    prev_df,
-    on=["query","page"],
+# Aggregate current month
+current_kw = current_df.groupby(["keyword","page"]).agg({
+    "clicks":"sum",
+    "impressions":"sum",
+    "ctr":"mean",
+    "position":"mean"
+}).reset_index()
+
+# Aggregate previous month
+prev_kw = prev_df.groupby(["keyword","page"]).agg({
+    "clicks":"sum",
+    "impressions":"sum",
+    "ctr":"mean",
+    "position":"mean"
+}).reset_index()
+
+# Merge both
+loss_df = current_kw.merge(
+    prev_kw,
+    on=["keyword","page"],
     how="left",
     suffixes=("_current","_prev")
 )
 
+# Replace NaN with 0
 loss_df.fillna(0, inplace=True)
 
+# Calculate changes
 loss_df["click_loss"] = loss_df["clicks_prev"] - loss_df["clicks_current"]
 loss_df["impression_change"] = loss_df["impressions_current"] - loss_df["impressions_prev"]
 loss_df["ctr_change"] = loss_df["ctr_current"] - loss_df["ctr_prev"]
 loss_df["position_change"] = loss_df["position_current"] - loss_df["position_prev"]
 
+# Sort by biggest loss
 loss_df = loss_df.sort_values("click_loss", ascending=False)
 
+# Display
 display_cols = [
-    "query",
+    "keyword",
     "page",
 
     "clicks_prev",
