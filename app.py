@@ -290,7 +290,7 @@ st.line_chart(trend)
 st.header("🚨 Traffic Loss vs Previous Month")
 
 loss_df = current_df.merge(
-    previous_df,
+    prev_df,
     on=["query","page"],
     how="left",
     suffixes=("_current","_prev")
