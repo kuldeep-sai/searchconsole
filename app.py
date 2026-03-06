@@ -1,12 +1,13 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import calendar
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 st.set_page_config(layout="wide")
 
-st.title("SEO Intelligence Dashboard v2")
+st.title("SEO Intelligence Dashboard")
 
 SCOPES = ["https://www.googleapis.com/auth/webmasters.readonly"]
 
@@ -19,28 +20,60 @@ service = build("searchconsole", "v1", credentials=credentials)
 
 site_url = "https://www.naukri.com"
 
-# ------------------------
+# -----------------------------
 # SIDEBAR FILTERS
-# ------------------------
+# -----------------------------
 
 st.sidebar.header("Filters")
 
-end_date = datetime.date.today()
-start_date = end_date - datetime.timedelta(days=30)
+today = datetime.date.today()
 
-prev_start = start_date - datetime.timedelta(days=30)
-prev_end = start_date - datetime.timedelta(days=1)
+months = []
+for i in range(0,12):
+    m = today - datetime.timedelta(days=30*i)
+    months.append(m.strftime("%Y-%m"))
+
+selected_month = st.sidebar.selectbox(
+    "Select Month",
+    sorted(set(months),reverse=True)
+)
+
+year = int(selected_month.split("-")[0])
+month = int(selected_month.split("-")[1])
+
+start_date = datetime.date(year,month,1)
+end_date = datetime.date(year,month,calendar.monthrange(year,month)[1])
+
+if month == 1:
+    prev_year = year - 1
+    prev_month = 12
+else:
+    prev_year = year
+    prev_month = month - 1
+
+prev_start = datetime.date(prev_year,prev_month,1)
+prev_end = datetime.date(prev_year,prev_month,calendar.monthrange(prev_year,prev_month)[1])
 
 device_filter = st.sidebar.selectbox(
     "Device",
     ["All","DESKTOP","MOBILE","TABLET"]
 )
 
+section_filter = st.sidebar.selectbox(
+    "Website Section",
+    ["All","Home","Recruit","Blog","Campus","Career Advice","Resume Maker","Naukri360","Code360","City Jobs","Keyword City Jobs","Keyword Jobs","Other"]
+)
+
+keyword_filter = st.sidebar.selectbox(
+    "Keyword Type",
+    ["All","Brand","Non Brand"]
+)
+
 brand_keywords = ["naukri","naukri.com","naukri jobs","naukri login"]
 
-# ------------------------
-# FUNCTION TO FETCH DATA
-# ------------------------
+# -----------------------------
+# FETCH DATA FUNCTION
+# -----------------------------
 
 def fetch_data(start,end):
 
@@ -74,9 +107,9 @@ def fetch_data(start,end):
 
     return pd.DataFrame(data)
 
-# ------------------------
+# -----------------------------
 # FETCH DATA
-# ------------------------
+# -----------------------------
 
 current_df = fetch_data(start_date,end_date)
 prev_df = fetch_data(prev_start,prev_end)
@@ -87,16 +120,52 @@ if current_df.empty:
 
 current_df["date"] = pd.to_datetime(current_df["date"])
 
-# ------------------------
-# DEVICE FILTER
-# ------------------------
+# -----------------------------
+# URL SECTION CLASSIFICATION
+# -----------------------------
 
-if device_filter != "All":
-    current_df = current_df[current_df["device"]==device_filter]
+def classify_page(url):
 
-# ------------------------
+    if url == "https://www.naukri.com/":
+        return "Home"
+
+    if "/recruit/" in url:
+        return "Recruit"
+
+    if "/blog/" in url:
+        return "Blog"
+
+    if "/campus/" in url:
+        return "Campus"
+
+    if "/career-advice/" in url:
+        return "Career Advice"
+
+    if "/resume-maker/" in url:
+        return "Resume Maker"
+
+    if "/naukri360/" in url:
+        return "Naukri360"
+
+    if "/code360/" in url:
+        return "Code360"
+
+    if "jobs-in" in url:
+        return "City Jobs"
+
+    if "-jobs-in-" in url:
+        return "Keyword City Jobs"
+
+    if "-jobs" in url:
+        return "Keyword Jobs"
+
+    return "Other"
+
+current_df["section"] = current_df["page"].apply(classify_page)
+
+# -----------------------------
 # BRAND CLASSIFICATION
-# ------------------------
+# -----------------------------
 
 def classify_keyword(k):
 
@@ -108,11 +177,24 @@ def classify_keyword(k):
 
 current_df["keyword_type"] = current_df["keyword"].apply(classify_keyword)
 
-# ------------------------
-# KPI METRICS
-# ------------------------
+# -----------------------------
+# APPLY FILTERS
+# -----------------------------
 
-st.header("SEO Performance Overview")
+if device_filter != "All":
+    current_df = current_df[current_df["device"]==device_filter]
+
+if section_filter != "All":
+    current_df = current_df[current_df["section"]==section_filter]
+
+if keyword_filter != "All":
+    current_df = current_df[current_df["keyword_type"]==keyword_filter]
+
+# -----------------------------
+# KPI METRICS
+# -----------------------------
+
+st.header("SEO Overview")
 
 col1,col2,col3,col4 = st.columns(4)
 
@@ -121,22 +203,22 @@ col2.metric("Impressions",int(current_df["impressions"].sum()))
 col3.metric("Avg CTR",round(current_df["ctr"].mean()*100,2))
 col4.metric("Avg Position",round(current_df["position"].mean(),2))
 
-# ------------------------
+# -----------------------------
 # BRAND VS NON BRAND
-# ------------------------
+# -----------------------------
 
-st.header("Brand vs Non Brand Traffic")
+st.header("Brand vs Non Brand")
 
 brand_data = current_df.groupby("keyword_type").agg({
     "clicks":"sum",
     "impressions":"sum"
-}).reset_index()
+})
 
-st.bar_chart(brand_data.set_index("keyword_type"))
+st.bar_chart(brand_data)
 
-# ------------------------
+# -----------------------------
 # TOP KEYWORDS
-# ------------------------
+# -----------------------------
 
 st.header("Top Keywords")
 
@@ -148,11 +230,11 @@ top_kw = current_df.groupby("keyword").agg({
 
 st.dataframe(top_kw)
 
-# ------------------------
+# -----------------------------
 # QUICK WIN KEYWORDS
-# ------------------------
+# -----------------------------
 
-st.header("Quick Win Keywords (Position 8-20)")
+st.header("Quick Win Keywords")
 
 quick = current_df[
 (current_df["position"]>=8) &
@@ -168,9 +250,9 @@ quick_kw = quick.groupby("keyword").agg({
 
 st.dataframe(quick_kw)
 
-# ------------------------
-# CTR OPPORTUNITIES
-# ------------------------
+# -----------------------------
+# CTR OPPORTUNITY
+# -----------------------------
 
 st.header("CTR Optimization Opportunities")
 
@@ -188,23 +270,9 @@ ctr_kw = ctr_df.groupby("keyword").agg({
 
 st.dataframe(ctr_kw)
 
-# ------------------------
-# PAGE OPPORTUNITIES
-# ------------------------
-
-st.header("Page Optimization Opportunities")
-
-page_df = current_df.groupby("page").agg({
-    "clicks":"sum",
-    "impressions":"sum",
-    "position":"mean"
-}).sort_values("impressions",ascending=False).head(20)
-
-st.dataframe(page_df)
-
-# ------------------------
-# TREND CHART
-# ------------------------
+# -----------------------------
+# TRAFFIC TREND
+# -----------------------------
 
 st.header("Traffic Trend")
 
@@ -215,33 +283,33 @@ trend = current_df.groupby("date").agg({
 
 st.line_chart(trend)
 
-# ------------------------
-# PREVIOUS MONTH COMPARISON
-# ------------------------
+# -----------------------------
+# TRAFFIC LOSS ANALYSIS
+# -----------------------------
 
-st.header("Keyword Ranking Drops vs Previous Month")
+st.header("Traffic Loss vs Previous Month")
 
 prev_kw = prev_df.groupby("keyword").agg({
-    "position":"mean"
+    "clicks":"sum"
 })
 
 curr_kw = current_df.groupby("keyword").agg({
-    "position":"mean"
+    "clicks":"sum"
 })
 
 compare = curr_kw.join(prev_kw,lsuffix="_current",rsuffix="_prev")
 
-compare["drop"] = compare["position_current"] - compare["position_prev"]
+compare["loss"] = compare["clicks_prev"] - compare["clicks_current"]
 
-drop_kw = compare.sort_values("drop",ascending=False).head(20)
+loss_kw = compare.sort_values("loss",ascending=False).head(20)
 
-st.dataframe(drop_kw)
+st.dataframe(loss_kw)
 
-# ------------------------
+# -----------------------------
 # NEW KEYWORDS
-# ------------------------
+# -----------------------------
 
-st.header("New Keywords Discovered")
+st.header("New Keywords")
 
 new_kw = set(current_df["keyword"]) - set(prev_df["keyword"])
 
@@ -254,3 +322,26 @@ new_kw_table = new_kw_df.groupby("keyword").agg({
 }).sort_values("impressions",ascending=False).head(20)
 
 st.dataframe(new_kw_table)
+
+# -----------------------------
+# AGENT RECOMMENDATIONS
+# -----------------------------
+
+st.header("SEO Agent Recommendations")
+
+recommendations = []
+
+if not quick_kw.empty:
+    recommendations.append("Improve ranking for quick win keywords (position 8-20)")
+
+if not ctr_kw.empty:
+    recommendations.append("Optimize title/meta to improve CTR for top ranking keywords")
+
+if not loss_kw.empty:
+    recommendations.append("Investigate keywords with traffic drop vs previous month")
+
+if len(recommendations)==0:
+    st.success("SEO performance stable")
+
+for r in recommendations:
+    st.write("•",r)
