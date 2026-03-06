@@ -29,20 +29,20 @@ st.sidebar.header("Filters")
 today = datetime.date.today()
 
 months = []
-for i in range(0,12):
+for i in range(12):
     m = today - datetime.timedelta(days=30*i)
     months.append(m.strftime("%Y-%m"))
 
 selected_month = st.sidebar.selectbox(
     "Select Month",
-    sorted(set(months),reverse=True)
+    sorted(set(months), reverse=True)
 )
 
 year = int(selected_month.split("-")[0])
 month = int(selected_month.split("-")[1])
 
-start_date = datetime.date(year,month,1)
-end_date = datetime.date(year,month,calendar.monthrange(year,month)[1])
+start_date = datetime.date(year, month, 1)
+end_date = datetime.date(year, month, calendar.monthrange(year, month)[1])
 
 if month == 1:
     prev_year = year - 1
@@ -51,8 +51,8 @@ else:
     prev_year = year
     prev_month = month - 1
 
-prev_start = datetime.date(prev_year,prev_month,1)
-prev_end = datetime.date(prev_year,prev_month,calendar.monthrange(prev_year,prev_month)[1])
+prev_start = datetime.date(prev_year, prev_month, 1)
+prev_end = datetime.date(prev_year, prev_month, calendar.monthrange(prev_year, prev_month)[1])
 
 device_filter = st.sidebar.selectbox(
     "Device",
@@ -69,10 +69,11 @@ keyword_filter = st.sidebar.selectbox(
     ["All","Brand","Non Brand"]
 )
 
-brand_keywords = ["naukri","naukri.com","naukri jobs","naukri login","nakuri","nokri","nokari","naukari"]
+# Brand keywords rule
+brand_keywords = ["naukri","nakuri","nokri","nokari","naukari","login"]
 
 # -----------------------------
-# FETCH DATA FUNCTION
+# FETCH DATA
 # -----------------------------
 
 def fetch_data(start,end):
@@ -107,8 +108,9 @@ def fetch_data(start,end):
 
     return pd.DataFrame(data)
 
+
 # -----------------------------
-# FETCH DATA
+# FETCH CURRENT + PREVIOUS
 # -----------------------------
 
 current_df = fetch_data(start_date,end_date)
@@ -119,6 +121,9 @@ if current_df.empty:
     st.stop()
 
 current_df["date"] = pd.to_datetime(current_df["date"])
+
+if not prev_df.empty:
+    prev_df["date"] = pd.to_datetime(prev_df["date"])
 
 # -----------------------------
 # URL SECTION CLASSIFICATION
@@ -150,16 +155,17 @@ def classify_page(url):
     if "/code360/" in url:
         return "Code360"
 
-    if "jobs-in" in url:
-        return "City Jobs"
-
     if "-jobs-in-" in url:
         return "Keyword City Jobs"
+
+    if "jobs-in" in url:
+        return "City Jobs"
 
     if "-jobs" in url:
         return "Keyword Jobs"
 
     return "Other"
+
 
 current_df["section"] = current_df["page"].apply(classify_page)
 
@@ -169,8 +175,10 @@ current_df["section"] = current_df["page"].apply(classify_page)
 
 def classify_keyword(k):
 
+    k = k.lower()
+
     for b in brand_keywords:
-        if b in k.lower():
+        if b in k:
             return "Brand"
 
     return "Non Brand"
@@ -251,7 +259,7 @@ quick_kw = quick.groupby("keyword").agg({
 st.dataframe(quick_kw)
 
 # -----------------------------
-# CTR OPPORTUNITY
+# CTR OPPORTUNITIES
 # -----------------------------
 
 st.header("CTR Optimization Opportunities")
@@ -284,70 +292,48 @@ trend = current_df.groupby("date").agg({
 st.line_chart(trend)
 
 # -----------------------------
-# TRAFFIC LOSS ANALYSIS
+# TRAFFIC LOSS VS PREVIOUS MONTH
 # -----------------------------
 
 st.header("🚨 Traffic Loss vs Previous Month")
 
-# Aggregate current month
-current_kw = current_df.groupby(["keyword","page"]).agg({
-    "clicks":"sum",
-    "impressions":"sum",
-    "ctr":"mean",
-    "position":"mean"
-}).reset_index()
+if not prev_df.empty:
 
-# Aggregate previous month
-prev_kw = prev_df.groupby(["keyword","page"]).agg({
-    "clicks":"sum",
-    "impressions":"sum",
-    "ctr":"mean",
-    "position":"mean"
-}).reset_index()
+    current_kw = current_df.groupby(["keyword","page"]).agg({
+        "clicks":"sum",
+        "impressions":"sum",
+        "ctr":"mean",
+        "position":"mean"
+    }).reset_index()
 
-# Merge both
-loss_df = current_kw.merge(
-    prev_kw,
-    on=["keyword","page"],
-    how="left",
-    suffixes=("_current","_prev")
-)
+    prev_kw = prev_df.groupby(["keyword","page"]).agg({
+        "clicks":"sum",
+        "impressions":"sum",
+        "ctr":"mean",
+        "position":"mean"
+    }).reset_index()
 
-# Replace NaN with 0
-loss_df.fillna(0, inplace=True)
+    loss_df = current_kw.merge(
+        prev_kw,
+        on=["keyword","page"],
+        how="left",
+        suffixes=("_current","_prev")
+    )
 
-# Calculate changes
-loss_df["click_loss"] = loss_df["clicks_prev"] - loss_df["clicks_current"]
-loss_df["impression_change"] = loss_df["impressions_current"] - loss_df["impressions_prev"]
-loss_df["ctr_change"] = loss_df["ctr_current"] - loss_df["ctr_prev"]
-loss_df["position_change"] = loss_df["position_current"] - loss_df["position_prev"]
+    loss_df.fillna(0,inplace=True)
 
-# Sort by biggest loss
-loss_df = loss_df.sort_values("click_loss", ascending=False)
+    loss_df["click_loss"] = loss_df["clicks_prev"] - loss_df["clicks_current"]
+    loss_df["impression_change"] = loss_df["impressions_current"] - loss_df["impressions_prev"]
+    loss_df["ctr_change"] = loss_df["ctr_current"] - loss_df["ctr_prev"]
+    loss_df["position_change"] = loss_df["position_current"] - loss_df["position_prev"]
 
-# Display
-display_cols = [
-    "keyword",
-    "page",
+    loss_df = loss_df.sort_values("click_loss",ascending=False)
 
-    "clicks_prev",
-    "clicks_current",
-    "click_loss",
+    st.dataframe(loss_df.head(100))
 
-    "impressions_prev",
-    "impressions_current",
-    "impression_change",
+else:
 
-    "ctr_prev",
-    "ctr_current",
-    "ctr_change",
-
-    "position_prev",
-    "position_current",
-    "position_change"
-]
-
-st.dataframe(loss_df[display_cols].head(100))
+    st.warning("Previous month data not available")
 
 # -----------------------------
 # NEW KEYWORDS
@@ -355,17 +341,19 @@ st.dataframe(loss_df[display_cols].head(100))
 
 st.header("New Keywords")
 
-new_kw = set(current_df["keyword"]) - set(prev_df["keyword"])
+if not prev_df.empty:
 
-new_kw_df = current_df[current_df["keyword"].isin(new_kw)]
+    new_kw = set(current_df["keyword"]) - set(prev_df["keyword"])
 
-new_kw_table = new_kw_df.groupby("keyword").agg({
-    "clicks":"sum",
-    "impressions":"sum",
-    "position":"mean"
-}).sort_values("impressions",ascending=False).head(20)
+    new_kw_df = current_df[current_df["keyword"].isin(new_kw)]
 
-st.dataframe(new_kw_table)
+    new_kw_table = new_kw_df.groupby("keyword").agg({
+        "clicks":"sum",
+        "impressions":"sum",
+        "position":"mean"
+    }).sort_values("impressions",ascending=False).head(20)
+
+    st.dataframe(new_kw_table)
 
 # -----------------------------
 # AGENT RECOMMENDATIONS
@@ -376,13 +364,13 @@ st.header("SEO Agent Recommendations")
 recommendations = []
 
 if not quick_kw.empty:
-    recommendations.append("Improve ranking for quick win keywords (position 8-20)")
+    recommendations.append("Improve ranking for keywords ranking between position 8-20")
 
 if not ctr_kw.empty:
-    recommendations.append("Optimize title/meta to improve CTR for top ranking keywords")
+    recommendations.append("Improve CTR for high ranking keywords")
 
-if not loss_kw.empty:
-    recommendations.append("Investigate keywords with traffic drop vs previous month")
+if 'loss_df' in locals() and not loss_df.empty:
+    recommendations.append("Investigate keywords losing traffic vs previous month")
 
 if len(recommendations)==0:
     st.success("SEO performance stable")
