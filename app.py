@@ -1,7 +1,16 @@
+
 import streamlit as st
 import pandas as pd
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from seo_analysis import (
+    opportunity_keywords,
+    ctr_leakage,
+    top_pages,
+    city_demand,
+    job_category_demand,
+    emerging_keywords
+)
 
 # -----------------------------
 # AUTHENTICATION
