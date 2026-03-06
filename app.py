@@ -287,23 +287,46 @@ st.line_chart(trend)
 # TRAFFIC LOSS ANALYSIS
 # -----------------------------
 
-st.header("Traffic Loss vs Previous Month")
+st.header("🚨 Traffic Loss vs Previous Month")
 
-prev_kw = prev_df.groupby("keyword").agg({
-    "clicks":"sum"
-})
+loss_df = current_df.merge(
+    previous_df,
+    on=["query","page"],
+    how="left",
+    suffixes=("_current","_prev")
+)
 
-curr_kw = current_df.groupby("keyword").agg({
-    "clicks":"sum"
-})
+loss_df.fillna(0, inplace=True)
 
-compare = curr_kw.join(prev_kw,lsuffix="_current",rsuffix="_prev")
+loss_df["click_loss"] = loss_df["clicks_prev"] - loss_df["clicks_current"]
+loss_df["impression_change"] = loss_df["impressions_current"] - loss_df["impressions_prev"]
+loss_df["ctr_change"] = loss_df["ctr_current"] - loss_df["ctr_prev"]
+loss_df["position_change"] = loss_df["position_current"] - loss_df["position_prev"]
 
-compare["loss"] = compare["clicks_prev"] - compare["clicks_current"]
+loss_df = loss_df.sort_values("click_loss", ascending=False)
 
-loss_kw = compare.sort_values("loss",ascending=False).head(20)
+display_cols = [
+    "query",
+    "page",
 
-st.dataframe(loss_kw)
+    "clicks_prev",
+    "clicks_current",
+    "click_loss",
+
+    "impressions_prev",
+    "impressions_current",
+    "impression_change",
+
+    "ctr_prev",
+    "ctr_current",
+    "ctr_change",
+
+    "position_prev",
+    "position_current",
+    "position_change"
+]
+
+st.dataframe(loss_df[display_cols].head(100))
 
 # -----------------------------
 # NEW KEYWORDS
