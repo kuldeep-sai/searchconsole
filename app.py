@@ -8,7 +8,7 @@ st.title("AI SEO Intelligence Dashboard")
 
 SCOPES = ["https://www.googleapis.com/auth/webmasters.readonly"]
 
-SITE_URL = "sc-domain:naukri.com"
+SITE_URL = "https://www.naukri.com"
 
 credentials = service_account.Credentials.from_service_account_info(
     st.secrets["google_service_account"],
