@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from ai_insights import generate_ai_insights
 from seo_analysis import (
     opportunity_keywords,
     ctr_leakage,
