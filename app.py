@@ -1,347 +1,213 @@
 import streamlit as st
 import pandas as pd
-import datetime
-import calendar
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
+import numpy as np
+import re
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="SEO Search Console Analyzer", layout="wide")
 
-st.title("SEO Intelligence Dashboard")
+st.title("🔎 SEO Search Console Analyzer")
 
-SCOPES = ["https://www.googleapis.com/auth/webmasters.readonly"]
+uploaded_file = st.file_uploader("Upload Search Console CSV", type=["csv"])
 
-credentials = service_account.Credentials.from_service_account_info(
-    st.secrets["google_service_account"],
-    scopes=SCOPES,
-)
+if uploaded_file:
 
-service = build("searchconsole", "v1", credentials=credentials)
+    df = pd.read_csv(uploaded_file)
 
-site_url = "https://www.naukri.com"
+    df.columns = df.columns.str.lower()
 
-# -----------------------------
-# SIDEBAR FILTERS
-# -----------------------------
+    df["date"] = pd.to_datetime(df["date"])
 
-st.sidebar.header("Filters")
+    df["month"] = df["date"].dt.to_period("M").astype(str)
 
-today = datetime.date.today()
+    # -------------------------------
+    # URL Folder Classification
+    # -------------------------------
 
-months = []
-for i in range(0,12):
-    m = today - datetime.timedelta(days=30*i)
-    months.append(m.strftime("%Y-%m"))
+    def classify_folder(url):
 
-selected_month = st.sidebar.selectbox(
-    "Select Month",
-    sorted(set(months),reverse=True)
-)
+        if "/blog/" in url:
+            return "Blog"
 
-year = int(selected_month.split("-")[0])
-month = int(selected_month.split("-")[1])
+        elif "/career-advice/" in url:
+            return "Career Advice"
 
-start_date = datetime.date(year,month,1)
-end_date = datetime.date(year,month,calendar.monthrange(year,month)[1])
+        elif "/resume-maker/" in url:
+            return "Resume Maker"
 
-if month == 1:
-    prev_year = year - 1
-    prev_month = 12
-else:
-    prev_year = year
-    prev_month = month - 1
+        elif "/naukri360/" in url:
+            return "Naukri360"
 
-prev_start = datetime.date(prev_year,prev_month,1)
-prev_end = datetime.date(prev_year,prev_month,calendar.monthrange(prev_year,prev_month)[1])
+        elif "/code360/" in url:
+            return "Code360"
 
-device_filter = st.sidebar.selectbox(
-    "Device",
-    ["All","DESKTOP","MOBILE","TABLET"]
-)
+        elif "/recruit/" in url:
+            return "Recruit"
 
-section_filter = st.sidebar.selectbox(
-    "Website Section",
-    ["All","Home","Recruit","Blog","Campus","Career Advice","Resume Maker","Naukri360","Code360","City Jobs","Keyword City Jobs","Keyword Jobs","Other"]
-)
+        elif "/campus/career-guidance/" in url:
+            return "Campus Career Guidance"
 
-keyword_filter = st.sidebar.selectbox(
-    "Keyword Type",
-    ["All","Brand","Non Brand"]
-)
+        elif re.search(r"jobs-in-[a-z-]+", url):
+            return "City Jobs"
 
-brand_keywords = ["naukri","naukri.com","naukri jobs","naukri login"]
+        elif re.search(r"[a-z-]+-jobs-in-[a-z-]+", url):
+            return "Keyword + City Jobs"
 
-# -----------------------------
-# FETCH DATA FUNCTION
-# -----------------------------
+        elif re.search(r"[a-z-]+-jobs", url):
+            return "Keyword Jobs"
 
-def fetch_data(start,end):
+        elif url.endswith(".com/"):
+            return "Homepage"
 
-    request = {
-        "startDate": str(start),
-        "endDate": str(end),
-        "dimensions": ["query","page","device","date"],
-        "rowLimit": 25000
-    }
+        else:
+            return "Other"
 
-    response = service.searchanalytics().query(
-        siteUrl=site_url,
-        body=request
-    ).execute()
+    df["folder"] = df["page"].apply(classify_folder)
 
-    rows = response.get("rows", [])
+    # -------------------------------
+    # Month Filter
+    # -------------------------------
 
-    data = []
+    months = sorted(df["month"].unique())
 
-    for row in rows:
-        data.append({
-            "keyword": row["keys"][0],
-            "page": row["keys"][1],
-            "device": row["keys"][2],
-            "date": row["keys"][3],
-            "clicks": row["clicks"],
-            "impressions": row["impressions"],
-            "ctr": row["ctr"],
-            "position": row["position"]
-        })
+    selected_month = st.selectbox("Select Month", months)
 
-    return pd.DataFrame(data)
+    prev_month_index = months.index(selected_month) - 1
 
-# -----------------------------
-# FETCH DATA
-# -----------------------------
+    if prev_month_index >= 0:
+        prev_month = months[prev_month_index]
+    else:
+        prev_month = None
 
-current_df = fetch_data(start_date,end_date)
-prev_df = fetch_data(prev_start,prev_end)
+    current = df[df["month"] == selected_month]
 
-if current_df.empty:
-    st.warning("No data found")
-    st.stop()
+    if prev_month:
+        previous = df[df["month"] == prev_month]
 
-current_df["date"] = pd.to_datetime(current_df["date"])
+    # -------------------------------
+    # Aggregate Data
+    # -------------------------------
 
-# -----------------------------
-# URL SECTION CLASSIFICATION
-# -----------------------------
+    curr_page = current.groupby("page").agg(
+        clicks=("clicks", "sum"),
+        impressions=("impressions", "sum"),
+        ctr=("ctr", "mean"),
+        position=("position", "mean")
+    ).reset_index()
 
-def classify_page(url):
+    prev_page = previous.groupby("page").agg(
+        clicks=("clicks", "sum")
+    ).reset_index()
 
-    if url == "https://www.naukri.com/":
-        return "Home"
+    merged = curr_page.merge(prev_page, on="page", how="left", suffixes=("_curr", "_prev"))
 
-    if "/recruit/" in url:
-        return "Recruit"
+    merged["click_loss"] = merged["clicks_prev"] - merged["clicks_curr"]
 
-    if "/blog/" in url:
-        return "Blog"
+    # -------------------------------
+    # 🔴 Traffic Loss Section
+    # -------------------------------
 
-    if "/campus/" in url:
-        return "Campus"
+    st.header("🚨 Pages Losing Traffic")
 
-    if "/career-advice/" in url:
-        return "Career Advice"
+    loss_df = merged.sort_values("click_loss", ascending=False).head(20)
 
-    if "/resume-maker/" in url:
-        return "Resume Maker"
+    st.dataframe(loss_df)
 
-    if "/naukri360/" in url:
-        return "Naukri360"
+    # -------------------------------
+    # 🟡 Quick Win Opportunities
+    # -------------------------------
 
-    if "/code360/" in url:
-        return "Code360"
+    st.header("⚡ Quick Win Opportunities (Position 8-20)")
 
-    if "jobs-in" in url:
-        return "City Jobs"
+    quick_wins = curr_page[
+        (curr_page["position"] >= 8) &
+        (curr_page["position"] <= 20) &
+        (curr_page["impressions"] > 1000)
+    ]
 
-    if "-jobs-in-" in url:
-        return "Keyword City Jobs"
+    st.dataframe(quick_wins.sort_values("impressions", ascending=False).head(20))
 
-    if "-jobs" in url:
-        return "Keyword Jobs"
+    # -------------------------------
+    # 🟢 High Impression Low CTR
+    # -------------------------------
 
-    return "Other"
+    st.header("📉 High Impressions but Low CTR")
 
-current_df["section"] = current_df["page"].apply(classify_page)
+    ctr_opportunities = curr_page[
+        (curr_page["impressions"] > 5000) &
+        (curr_page["ctr"] < 0.02)
+    ]
 
-# -----------------------------
-# BRAND CLASSIFICATION
-# -----------------------------
+    st.dataframe(ctr_opportunities.sort_values("impressions", ascending=False).head(20))
 
-def classify_keyword(k):
+    # -------------------------------
+    # 🔽 Query Drop Analysis
+    # -------------------------------
 
-    for b in brand_keywords:
-        if b in k.lower():
-            return "Brand"
+    st.header("🔻 Keywords Losing Traffic")
 
-    return "Non Brand"
+    curr_query = current.groupby("query").agg(
+        clicks=("clicks", "sum"),
+        impressions=("impressions", "sum"),
+        position=("position", "mean")
+    ).reset_index()
 
-current_df["keyword_type"] = current_df["keyword"].apply(classify_keyword)
+    prev_query = previous.groupby("query").agg(
+        clicks=("clicks", "sum")
+    ).reset_index()
 
-# -----------------------------
-# APPLY FILTERS
-# -----------------------------
+    query_merge = curr_query.merge(prev_query, on="query", how="left", suffixes=("_curr", "_prev"))
 
-if device_filter != "All":
-    current_df = current_df[current_df["device"]==device_filter]
+    query_merge["click_loss"] = query_merge["clicks_prev"] - query_merge["clicks_curr"]
 
-if section_filter != "All":
-    current_df = current_df[current_df["section"]==section_filter]
+    st.dataframe(query_merge.sort_values("click_loss", ascending=False).head(20))
 
-if keyword_filter != "All":
-    current_df = current_df[current_df["keyword_type"]==keyword_filter]
+    # -------------------------------
+    # 📂 Folder Performance
+    # -------------------------------
 
-# -----------------------------
-# KPI METRICS
-# -----------------------------
+    st.header("📁 Folder Performance")
 
-st.header("SEO Overview")
+    folder_perf = current.groupby("folder").agg(
+        clicks=("clicks", "sum"),
+        impressions=("impressions", "sum"),
+        ctr=("ctr", "mean"),
+        position=("position", "mean")
+    ).reset_index()
 
-col1,col2,col3,col4 = st.columns(4)
+    st.dataframe(folder_perf.sort_values("clicks", ascending=False))
 
-col1.metric("Clicks",int(current_df["clicks"].sum()))
-col2.metric("Impressions",int(current_df["impressions"].sum()))
-col3.metric("Avg CTR",round(current_df["ctr"].mean()*100,2))
-col4.metric("Avg Position",round(current_df["position"].mean(),2))
+    # -------------------------------
+    # 📊 Overall Performance
+    # -------------------------------
 
-# -----------------------------
-# BRAND VS NON BRAND
-# -----------------------------
+    st.header("📊 Overall Performance Summary")
 
-st.header("Brand vs Non Brand")
+    summary = current.groupby("month").agg(
+        clicks=("clicks", "sum"),
+        impressions=("impressions", "sum")
+    )
 
-brand_data = current_df.groupby("keyword_type").agg({
-    "clicks":"sum",
-    "impressions":"sum"
-})
+    st.dataframe(summary)
 
-st.bar_chart(brand_data)
+    # -------------------------------
+    # 🤖 SEO Agent Recommendations
+    # -------------------------------
 
-# -----------------------------
-# TOP KEYWORDS
-# -----------------------------
+    st.header("🤖 SEO Agent Recommendations")
 
-st.header("Top Keywords")
+    insights = []
 
-top_kw = current_df.groupby("keyword").agg({
-    "clicks":"sum",
-    "impressions":"sum",
-    "position":"mean"
-}).sort_values("clicks",ascending=False).head(20)
+    if len(loss_df) > 0:
+        insights.append("Focus on pages losing the most clicks compared to last month.")
 
-st.dataframe(top_kw)
+    if len(quick_wins) > 0:
+        insights.append("Optimize pages ranking between positions 8–20 to push them into top 5.")
 
-# -----------------------------
-# QUICK WIN KEYWORDS
-# -----------------------------
+    if len(ctr_opportunities) > 0:
+        insights.append("Improve title tags and meta descriptions for pages with high impressions but low CTR.")
 
-st.header("Quick Win Keywords")
+    if len(query_merge) > 0:
+        insights.append("Investigate keywords that lost clicks and refresh content targeting those queries.")
 
-quick = current_df[
-(current_df["position"]>=8) &
-(current_df["position"]<=20) &
-(current_df["impressions"]>1000)
-]
-
-quick_kw = quick.groupby("keyword").agg({
-    "clicks":"sum",
-    "impressions":"sum",
-    "position":"mean"
-}).sort_values("impressions",ascending=False).head(20)
-
-st.dataframe(quick_kw)
-
-# -----------------------------
-# CTR OPPORTUNITY
-# -----------------------------
-
-st.header("CTR Optimization Opportunities")
-
-ctr_df = current_df[
-(current_df["position"]<=5) &
-(current_df["ctr"]<0.03)
-]
-
-ctr_kw = ctr_df.groupby("keyword").agg({
-    "clicks":"sum",
-    "impressions":"sum",
-    "ctr":"mean",
-    "position":"mean"
-}).sort_values("impressions",ascending=False).head(20)
-
-st.dataframe(ctr_kw)
-
-# -----------------------------
-# TRAFFIC TREND
-# -----------------------------
-
-st.header("Traffic Trend")
-
-trend = current_df.groupby("date").agg({
-    "clicks":"sum",
-    "impressions":"sum"
-})
-
-st.line_chart(trend)
-
-# -----------------------------
-# TRAFFIC LOSS ANALYSIS
-# -----------------------------
-
-st.header("Traffic Loss vs Previous Month")
-
-prev_kw = prev_df.groupby("keyword").agg({
-    "clicks":"sum"
-})
-
-curr_kw = current_df.groupby("keyword").agg({
-    "clicks":"sum"
-})
-
-compare = curr_kw.join(prev_kw,lsuffix="_current",rsuffix="_prev")
-
-compare["loss"] = compare["clicks_prev"] - compare["clicks_current"]
-
-loss_kw = compare.sort_values("loss",ascending=False).head(20)
-
-st.dataframe(loss_kw)
-
-# -----------------------------
-# NEW KEYWORDS
-# -----------------------------
-
-st.header("New Keywords")
-
-new_kw = set(current_df["keyword"]) - set(prev_df["keyword"])
-
-new_kw_df = current_df[current_df["keyword"].isin(new_kw)]
-
-new_kw_table = new_kw_df.groupby("keyword").agg({
-    "clicks":"sum",
-    "impressions":"sum",
-    "position":"mean"
-}).sort_values("impressions",ascending=False).head(20)
-
-st.dataframe(new_kw_table)
-
-# -----------------------------
-# AGENT RECOMMENDATIONS
-# -----------------------------
-
-st.header("SEO Agent Recommendations")
-
-recommendations = []
-
-if not quick_kw.empty:
-    recommendations.append("Improve ranking for quick win keywords (position 8-20)")
-
-if not ctr_kw.empty:
-    recommendations.append("Optimize title/meta to improve CTR for top ranking keywords")
-
-if not loss_kw.empty:
-    recommendations.append("Investigate keywords with traffic drop vs previous month")
-
-if len(recommendations)==0:
-    st.success("SEO performance stable")
-
-for r in recommendations:
-    st.write("•",r)
+    for i in insights:
+        st.write("•", i)
