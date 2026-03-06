@@ -297,60 +297,64 @@ st.line_chart(trend)
 
 st.header("📉 Traffic Loss vs Previous Month")
 
-if not current_df.empty:
+# Ensure dataframes exist
+if 'current_df' not in locals():
+    current_df = pd.DataFrame()
 
-    # Ensure required columns exist
-    required_cols = ["query", "page", "clicks", "impressions", "ctr", "position"]
+if 'prev_df' not in locals():
+    prev_df = pd.DataFrame()
 
-    for col in required_cols:
-        if col not in current_df.columns:
-            current_df[col] = 0
+# Force required columns
+required_cols = ["query","page","clicks","impressions","ctr","position"]
 
-    if prev_df.empty:
-        prev_df = pd.DataFrame(columns=required_cols)
+for col in required_cols:
+    if col not in current_df.columns:
+        current_df[col] = 0
 
-    for col in required_cols:
-        if col not in prev_df.columns:
-            prev_df[col] = 0
+for col in required_cols:
+    if col not in prev_df.columns:
+        prev_df[col] = 0
 
-    # Group current month
-    current_grouped = current_df.groupby(["query","page"], as_index=False).agg({
-        "clicks":"sum",
-        "impressions":"sum",
-        "ctr":"mean",
-        "position":"mean"
-    })
+# Convert to dataframe safety
+current_df = pd.DataFrame(current_df)
+prev_df = pd.DataFrame(prev_df)
 
-    # Group previous month
-    prev_grouped = prev_df.groupby(["query","page"], as_index=False).agg({
-        "clicks":"sum",
-        "impressions":"sum",
-        "ctr":"mean",
-        "position":"mean"
-    })
+# Aggregate both months
+current_grouped = current_df.groupby(["query","page"], as_index=False).agg({
+    "clicks":"sum",
+    "impressions":"sum",
+    "ctr":"mean",
+    "position":"mean"
+})
 
-    # Merge safely
-    loss_df = pd.merge(
-        current_grouped,
-        prev_grouped,
-        on=["query","page"],
-        how="outer",
-        suffixes=("_current","_prev")
-    ).fillna(0)
+prev_grouped = prev_df.groupby(["query","page"], as_index=False).agg({
+    "clicks":"sum",
+    "impressions":"sum",
+    "ctr":"mean",
+    "position":"mean"
+})
 
-    # Calculate loss metrics
-    loss_df["click_loss"] = loss_df["clicks_prev"] - loss_df["clicks_current"]
-    loss_df["impression_loss"] = loss_df["impressions_prev"] - loss_df["impressions_current"]
-    loss_df["ctr_change"] = loss_df["ctr_current"] - loss_df["ctr_prev"]
-    loss_df["rank_change"] = loss_df["position_current"] - loss_df["position_prev"]
+# SAFE MERGE
+loss_df = pd.merge(
+    current_grouped,
+    prev_grouped,
+    on=["query","page"],
+    how="outer",
+    suffixes=("_current","_prev")
+)
 
-    # Sort biggest traffic loss
-    loss_df = loss_df.sort_values("click_loss", ascending=False)
+loss_df = loss_df.fillna(0)
 
-    st.dataframe(loss_df.head(100))
+# Calculate differences
+loss_df["click_loss"] = loss_df["clicks_prev"] - loss_df["clicks_current"]
+loss_df["impression_loss"] = loss_df["impressions_prev"] - loss_df["impressions_current"]
+loss_df["ctr_change"] = loss_df["ctr_current"] - loss_df["ctr_prev"]
+loss_df["rank_change"] = loss_df["position_current"] - loss_df["position_prev"]
 
-else:
-    st.warning("No data available for selected period.")
+# Show biggest losses first
+loss_df = loss_df.sort_values("click_loss", ascending=False)
+
+st.dataframe(loss_df.head(100))
 
 # -----------------------------
 # NEW KEYWORDS
