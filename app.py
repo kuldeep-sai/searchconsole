@@ -69,7 +69,6 @@ keyword_filter = st.sidebar.selectbox(
     ["All","Brand","Non Brand"]
 )
 
-# Brand keywords rule
 brand_keywords = ["naukri","nakuri","nokri","nokari","naukari","login"]
 
 # -----------------------------
@@ -108,9 +107,8 @@ def fetch_data(start,end):
 
     return pd.DataFrame(data)
 
-
 # -----------------------------
-# FETCH CURRENT + PREVIOUS
+# FETCH DATA
 # -----------------------------
 
 current_df = fetch_data(start_date,end_date)
@@ -165,7 +163,6 @@ def classify_page(url):
         return "Keyword Jobs"
 
     return "Other"
-
 
 current_df["section"] = current_df["page"].apply(classify_page)
 
@@ -297,64 +294,65 @@ st.line_chart(trend)
 
 st.header("📉 Traffic Loss vs Previous Month")
 
-# Ensure dataframes exist
-if 'current_df' not in locals():
-    current_df = pd.DataFrame()
+if prev_df.empty:
 
-if 'prev_df' not in locals():
-    prev_df = pd.DataFrame()
+    st.info("Previous month data not available")
 
-# Force required columns
-required_cols = ["query","page","clicks","impressions","ctr","position"]
+else:
 
-for col in required_cols:
-    if col not in current_df.columns:
-        current_df[col] = 0
+    current_grouped = current_df.groupby(
+        ["keyword","page"], as_index=False
+    ).agg({
+        "clicks":"sum",
+        "impressions":"sum",
+        "ctr":"mean",
+        "position":"mean"
+    })
 
-for col in required_cols:
-    if col not in prev_df.columns:
-        prev_df[col] = 0
+    prev_grouped = prev_df.groupby(
+        ["keyword","page"], as_index=False
+    ).agg({
+        "clicks":"sum",
+        "impressions":"sum",
+        "ctr":"mean",
+        "position":"mean"
+    })
 
-# Convert to dataframe safety
-current_df = pd.DataFrame(current_df)
-prev_df = pd.DataFrame(prev_df)
+    loss_df = pd.merge(
+        current_grouped,
+        prev_grouped,
+        on=["keyword","page"],
+        how="outer",
+        suffixes=("_current","_prev")
+    )
 
-# Aggregate both months
-current_grouped = current_df.groupby(["query","page"], as_index=False).agg({
-    "clicks":"sum",
-    "impressions":"sum",
-    "ctr":"mean",
-    "position":"mean"
-})
+    loss_df = loss_df.fillna(0)
 
-prev_grouped = prev_df.groupby(["query","page"], as_index=False).agg({
-    "clicks":"sum",
-    "impressions":"sum",
-    "ctr":"mean",
-    "position":"mean"
-})
+    loss_df["click_loss"] = loss_df["clicks_prev"] - loss_df["clicks_current"]
+    loss_df["impression_change"] = loss_df["impressions_current"] - loss_df["impressions_prev"]
+    loss_df["ctr_change"] = loss_df["ctr_current"] - loss_df["ctr_prev"]
+    loss_df["rank_change"] = loss_df["position_current"] - loss_df["position_prev"]
 
-# SAFE MERGE
-loss_df = pd.merge(
-    current_grouped,
-    prev_grouped,
-    on=["query","page"],
-    how="outer",
-    suffixes=("_current","_prev")
-)
+    loss_df = loss_df.sort_values("click_loss", ascending=False)
 
-loss_df = loss_df.fillna(0)
+    display_cols = [
+        "keyword",
+        "page",
+        "clicks_prev",
+        "clicks_current",
+        "click_loss",
+        "impressions_prev",
+        "impressions_current",
+        "impression_change",
+        "ctr_prev",
+        "ctr_current",
+        "ctr_change",
+        "position_prev",
+        "position_current",
+        "rank_change"
+    ]
 
-# Calculate differences
-loss_df["click_loss"] = loss_df["clicks_prev"] - loss_df["clicks_current"]
-loss_df["impression_loss"] = loss_df["impressions_prev"] - loss_df["impressions_current"]
-loss_df["ctr_change"] = loss_df["ctr_current"] - loss_df["ctr_prev"]
-loss_df["rank_change"] = loss_df["position_current"] - loss_df["position_prev"]
-
-# Show biggest losses first
-loss_df = loss_df.sort_values("click_loss", ascending=False)
-
-st.dataframe(loss_df.head(100))
+    st.dataframe(loss_df[display_cols].head(100))
 
 # -----------------------------
 # NEW KEYWORDS
@@ -385,10 +383,10 @@ st.header("SEO Agent Recommendations")
 recommendations = []
 
 if not quick_kw.empty:
-    recommendations.append("Improve ranking for keywords ranking between position 8-20")
+    recommendations.append("Improve ranking for keywords between position 8-20")
 
 if not ctr_kw.empty:
-    recommendations.append("Improve CTR for high ranking keywords")
+    recommendations.append("Improve CTR for top ranking keywords")
 
 if 'loss_df' in locals() and not loss_df.empty:
     recommendations.append("Investigate keywords losing traffic vs previous month")
