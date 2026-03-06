@@ -18,7 +18,7 @@ service = build("searchconsole", "v1", credentials=credentials)
 # -----------------------------
 # WEBSITE PROPERTY
 # -----------------------------
-SITE_URL = "sc-domain:naukri.com"   # change if different
+SITE_URL = "https://www.naukri.com/"   # change if different
 
 # -----------------------------
 # STREAMLIT UI
